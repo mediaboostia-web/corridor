@@ -149,7 +149,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
       const init: RequestInit = {
         method,

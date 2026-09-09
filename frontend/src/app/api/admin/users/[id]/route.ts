@@ -14,6 +14,10 @@ import { prisma } from '@/lib/server/prisma';
 import { enforceAdminRateLimit } from '@/lib/server/middleware/rate-limit-by-userid';
 import { makeRequestContext, withRequestContext } from '@/lib/server/observability/request-context';
 
+// Phase 8 (PRD 3.23 "voir l'activité détaillée d'un utilisateur") — the
+// marketplace-specific profile relations are all optional 1:1s, so
+// selecting all three costs nothing extra for a user who only has one of
+// them (Prisma returns null for the ones that don't apply).
 const USER_SELECT = {
   id: true,
   email: true,
@@ -21,8 +25,24 @@ const USER_SELECT = {
   avatarUrl: true,
   role: true,
   status: true,
+  marketplaceRole: true,
   emailVerifiedAt: true,
   createdAt: true,
+  buyerProfile: { select: { fullName: true, phone: true, deliveryCountry: true } },
+  agentProfile: {
+    select: {
+      id: true,
+      displayName: true,
+      verificationStatus: true,
+      isSuspended: true,
+      avgRating: true,
+      reviewCount: true,
+      missionCount: true,
+      publicSlug: true,
+    },
+  },
+  wholesalerProfile: { select: { id: true, shopName: true, slug: true, status: true } },
+  proSubscription: { select: { plan: true, status: true, currentPeriodEnd: true } },
 } as const satisfies Prisma.UserSelect;
 
 export async function GET(

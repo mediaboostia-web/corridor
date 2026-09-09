@@ -1,5 +1,7 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+
 export default function ErrorBoundary({
   error,
   reset,
@@ -8,16 +10,10 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-6 px-4">
-      <h1 className="text-2xl font-bold">Something went wrong</h1>
-      <p className="text-center text-gray-600">{error.message}</p>
-      <button
-        type="button"
-        onClick={reset}
-        className="rounded-md bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
-      >
-        Try again
-      </button>
+    <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
+      <h1 className="text-2xl font-semibold tracking-tight">Une erreur est survenue</h1>
+      <p className="text-sm text-muted-foreground">{error.message}</p>
+      <Button onClick={reset}>Réessayer</Button>
     </main>
   );
 }

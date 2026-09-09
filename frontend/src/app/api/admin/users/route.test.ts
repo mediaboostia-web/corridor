@@ -168,6 +168,15 @@ describe('/api/admin/users [Wave 1] — list', () => {
     expect(where?.['role']).toBe('USER');
   });
 
+  it('GET filters by marketplaceRole (Phase 8, PRD 3.23) — orthogonal to the admin `role` filter', async () => {
+    prismaMock.user.findMany.mockResolvedValueOnce([]);
+    await GET(makeGet('http://test/api/admin/users?marketplaceRole=AGENT'));
+    const args = prismaMock.user.findMany.mock.calls[0]?.[0];
+    const where = args?.where as Record<string, unknown> | undefined;
+    expect(where?.['marketplaceRole']).toBe('AGENT');
+    expect(args?.select).toMatchObject({ marketplaceRole: true });
+  });
+
   it('GET clamps limit to MAX_LIMIT=50 and emits nextCursor when hasMore', async () => {
     // 21 rows (= default 20 + 1) → nextCursor populated, last visible row drives the cursor
     const rows = Array.from({ length: 21 }, (_, i) =>

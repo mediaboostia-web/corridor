@@ -9,6 +9,7 @@ import { COOKIE_PREFIX } from '@/lib/constants';
 export interface User {
   id: string;
   email: string;
+  name: string | null;
   emailVerifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -16,6 +17,8 @@ export interface User {
   hasPassword: boolean;
   /** Provider names already linked, e.g. ['google']. Empty for pure email/password accounts. */
   linkedProviders: string[];
+  /** Corridor Sourcing marketplace role. Null until /onboarding/choisir-role completes. */
+  marketplaceRole: 'BUYER' | 'AGENT' | 'WHOLESALER' | null;
 }
 
 interface AuthContextValue {

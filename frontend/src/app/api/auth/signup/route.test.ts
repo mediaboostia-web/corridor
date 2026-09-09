@@ -57,12 +57,16 @@ describe('POST /api/auth/signup', () => {
     prismaMock.user.create.mockResolvedValue({ id: 'u-new' } as never);
     prismaMock.verificationCode.create.mockResolvedValue({} as never);
 
-    const res = await POST(makeReq({ email: 'new@example.com', password: 'a-strong-passphrase' }));
+    const res = await POST(
+      makeReq({ email: 'new@example.com', password: 'a-strong-passphrase', name: 'Adaeze Okoro' }),
+    );
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body).toEqual({ ok: true });
 
     expect(prismaMock.user.create).toHaveBeenCalledTimes(1);
+    const userArg = prismaMock.user.create.mock.calls[0]?.[0];
+    expect(userArg?.data?.name).toBe('Adaeze Okoro');
     expect(prismaMock.verificationCode.create).toHaveBeenCalledTimes(1);
     const codeArg = prismaMock.verificationCode.create.mock.calls[0]?.[0];
     expect(codeArg?.data?.type).toBe('EMAIL_VERIFY');
@@ -77,7 +81,11 @@ describe('POST /api/auth/signup', () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 'u-existing' } as never);
 
     const res = await POST(
-      makeReq({ email: 'existing@example.com', password: 'a-strong-passphrase' }),
+      makeReq({
+        email: 'existing@example.com',
+        password: 'a-strong-passphrase',
+        name: 'Bem Terhemba',
+      }),
     );
     expect(res.status).toBe(201);
     const body = await res.json();
@@ -90,7 +98,9 @@ describe('POST /api/auth/signup', () => {
   });
 
   it('rejects banned passwords with PASSWORD_BANNED before user lookup', async () => {
-    const res = await POST(makeReq({ email: 'foo@example.com', password: 'password' }));
+    const res = await POST(
+      makeReq({ email: 'foo@example.com', password: 'password', name: 'Foo Bar' }),
+    );
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('PASSWORD_BANNED');
@@ -98,7 +108,9 @@ describe('POST /api/auth/signup', () => {
   });
 
   it('rejects too-short passwords with PASSWORD_TOO_SHORT', async () => {
-    const res = await POST(makeReq({ email: 'foo@example.com', password: 'short' }));
+    const res = await POST(
+      makeReq({ email: 'foo@example.com', password: 'short', name: 'Foo Bar' }),
+    );
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('PASSWORD_TOO_SHORT');
@@ -107,13 +119,35 @@ describe('POST /api/auth/signup', () => {
   });
 
   it('returns VALIDATION_FAILED for malformed email', async () => {
-    const res = await POST(makeReq({ email: 'not-an-email', password: 'a-strong-passphrase' }));
+    const res = await POST(
+      makeReq({ email: 'not-an-email', password: 'a-strong-passphrase', name: 'Foo Bar' }),
+    );
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('VALIDATION_FAILED');
     expect(Array.isArray(body.issues)).toBe(true);
   });
 
+  it('returns VALIDATION_FAILED for a missing name', async () => {
+    const res = await POST(makeReq({ email: 'foo@example.com', password: 'a-strong-passphrase' }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('VALIDATION_FAILED');
+    expect(body.issues.some((i: { path: string }) => i.path === 'name')).toBe(true);
+  });
+
+  it('returns VALIDATION_FAILED for a single-character name', async () => {
+    const res = await POST(
+      makeReq({ email: 'foo@example.com', password: 'a-strong-passphrase', name: 'A' }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('VALIDATION_FAILED');
+    expect(body.issues.some((i: { path: string }) => i.path === 'name')).toBe(true);
+  });
+
+  // 6 concurrent real-bcrypt signups is inherently CPU-heavy; the default
+  // 5000ms Vitest timeout is too tight under a loaded full-suite run.
   it('returns 429 TOO_MANY_SIGNUP_ATTEMPTS when the per-email limit is hit', async () => {
     prismaMock.user.findUnique.mockResolvedValue(null);
     prismaMock.user.create.mockResolvedValue({ id: 'u-rate' } as never);
@@ -125,6 +159,7 @@ describe('POST /api/auth/signup', () => {
           makeReq({
             email: 'rate-target@example.com',
             password: 'a-strong-passphrase',
+            name: 'Rate Target',
           }),
         ),
       ),
@@ -134,7 +169,7 @@ describe('POST /api/auth/signup', () => {
     const limited = calls.find((r) => r.status === 429)!;
     const body = await limited.json();
     expect(body.error).toBe('TOO_MANY_SIGNUP_ATTEMPTS');
-  });
+  }, 15000);
 
   it('rejects pwned passwords with PASSWORD_PWNED when PASSWORD_HIBP_CHECK=1', async () => {
     vi.stubEnv('PASSWORD_HIBP_CHECK', '1');
@@ -144,6 +179,7 @@ describe('POST /api/auth/signup', () => {
         makeReq({
           email: 'hibp@example.com',
           password: 'a-very-unique-passphrase-1234',
+          name: 'Hibp Tester',
         }),
       );
       expect(res.status).toBe(400);

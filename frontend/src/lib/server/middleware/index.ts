@@ -26,6 +26,7 @@ import type { AdminRole } from './require-admin';
 import { roleRank } from './require-admin';
 import type { OrgRole } from './require-org-role';
 import { ORG_ROLE_RANK } from './require-org-role';
+import type { MarketplaceRole } from './require-marketplace-role';
 
 export interface AuthContext {
   user: { sub: string; email: string };
@@ -37,6 +38,14 @@ export interface AdminContext extends AuthContext {
 
 export interface OrgContext extends AuthContext {
   orgMember: { organizationId: string; userId: string; role: OrgRole };
+}
+
+export interface MarketplaceContext extends AuthContext {
+  marketplaceRole: MarketplaceRole;
+}
+
+export interface VerifiedAgentContext extends MarketplaceContext {
+  agentProfileId: string;
 }
 
 /**
@@ -172,4 +181,71 @@ export async function requireOrgRole(
     user: auth.user,
     orgMember: { organizationId: membership.organizationId, userId: membership.userId, role },
   };
+}
+
+/**
+ * requireMarketplaceRole / requireAnyMarketplaceRole / requireVerifiedAgent
+ * — chain with requireAuth. Re-reads `marketplaceRole` from DB (same
+ * anti-stale-JWT rule as requireAdmin) so a role set moments ago is honored
+ * on the very next request.
+ */
+export async function requireMarketplaceRole(
+  role: MarketplaceRole,
+  authHeader?: string | null,
+): Promise<MarketplaceContext | NextResponse> {
+  const auth = await requireAuth(authHeader);
+  if (auth instanceof NextResponse) return auth;
+
+  const user = await prisma.user.findUnique({
+    where: { id: auth.user.sub },
+    select: { marketplaceRole: true },
+  });
+  if (!user?.marketplaceRole) {
+    return NextResponse.json({ error: 'ROLE_NOT_SET' }, { status: 409 });
+  }
+  if (user.marketplaceRole !== role) {
+    return NextResponse.json({ error: 'MARKETPLACE_ROLE_REQUIRED' }, { status: 403 });
+  }
+  return { user: auth.user, marketplaceRole: user.marketplaceRole as MarketplaceRole };
+}
+
+export async function requireAnyMarketplaceRole(
+  roles: MarketplaceRole[],
+  authHeader?: string | null,
+): Promise<MarketplaceContext | NextResponse> {
+  const auth = await requireAuth(authHeader);
+  if (auth instanceof NextResponse) return auth;
+
+  const user = await prisma.user.findUnique({
+    where: { id: auth.user.sub },
+    select: { marketplaceRole: true },
+  });
+  if (!user?.marketplaceRole) {
+    return NextResponse.json({ error: 'ROLE_NOT_SET' }, { status: 409 });
+  }
+  if (!roles.includes(user.marketplaceRole as MarketplaceRole)) {
+    return NextResponse.json({ error: 'MARKETPLACE_ROLE_REQUIRED' }, { status: 403 });
+  }
+  return { user: auth.user, marketplaceRole: user.marketplaceRole as MarketplaceRole };
+}
+
+/**
+ * requireVerifiedAgent — chains requireMarketplaceRole('AGENT'), then gates
+ * on AgentProfile.verificationStatus === 'VERIFIED' (F10/US2: unverified
+ * agents can browse open requests but not candidate).
+ */
+export async function requireVerifiedAgent(
+  authHeader?: string | null,
+): Promise<VerifiedAgentContext | NextResponse> {
+  const ctx = await requireMarketplaceRole('AGENT', authHeader);
+  if (ctx instanceof NextResponse) return ctx;
+
+  const profile = await prisma.agentProfile.findUnique({
+    where: { userId: ctx.user.sub },
+    select: { id: true, verificationStatus: true },
+  });
+  if (!profile || profile.verificationStatus !== 'VERIFIED') {
+    return NextResponse.json({ error: 'AGENT_NOT_VERIFIED' }, { status: 403 });
+  }
+  return { ...ctx, agentProfileId: profile.id };
 }

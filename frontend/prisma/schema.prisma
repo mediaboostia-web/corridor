@@ -9,30 +9,35 @@ datasource db {
 }
 
 model User {
-  id                String    @id @default(cuid())
-  email             String    @unique
+  id                   String    @id @default(cuid())
+  email                String    @unique
   // Nullable: OAuth-only users (e.g. signed up with Google) never set a
   // password. Email/password signup still requires it; the auth route
   // enforces presence at runtime.
-  passwordHash      String?
-  emailVerifiedAt   DateTime?
-  tokenVersion      Int       @default(0)
-  withdrawalPinHash String? // bcrypt hash of withdrawal PIN; null = no PIN set
+  passwordHash         String?
+  emailVerifiedAt      DateTime?
+  tokenVersion         Int       @default(0)
+  withdrawalPinHash    String? // bcrypt hash of withdrawal PIN; null = no PIN set
   // Optional display name — populated from OAuth profile on first sign-in.
   // Email/password users can fill it later via /api/auth/me PATCH (future).
-  name              String?
+  name                 String?
   // Optional avatar URL — populated from OAuth profile on first sign-in.
-  avatarUrl         String?
+  avatarUrl            String?
   // App-wide role. USER is the default; ADMIN unlocks /admin back-office;
   // SUPERADMIN can promote/demote other admins. Bootstrap an initial
   // SUPERADMIN via `pnpm db:make-superadmin <email>` (see scripts).
-  role              String    @default("USER") // USER | ADMIN | SUPERADMIN
+  role                 String    @default("USER") // USER | ADMIN | SUPERADMIN
   // Account status. ACTIVE = login + refresh allowed; SUSPENDED = both
   // refused with 403 ACCOUNT_SUSPENDED. Mutated via /api/admin/users/[id]/status
   // (ADMIN can suspend; only SUPERADMIN can restore).
-  status            String    @default("ACTIVE") // ACTIVE | SUSPENDED
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  status               String    @default("ACTIVE") // ACTIVE | SUSPENDED
+  // Corridor Sourcing marketplace role — orthogonal to `role` above (admin
+  // tier). Set once via POST /api/marketplace/role after email verification;
+  // immutable in self-service (a role change goes through admin tooling).
+  marketplaceRole      String? // BUYER | AGENT | WHOLESALER
+  marketplaceRoleSetAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   verificationCodes VerificationCode[]
   uploads           FileUpload[]
@@ -43,15 +48,24 @@ model User {
   oauthAccounts     OAuthAccount[]
   adminActions      AdminAction[]
 
+  // Corridor Sourcing marketplace relations
+  buyerProfile      BuyerProfile?
+  agentProfile      AgentProfile?
+  wholesalerProfile WholesalerProfile?
+  sourcingRequests  SourcingRequest[]
+  missions          Mission[]
+  proSubscription   ProSubscription?
+
   // Multi-tenancy is opt-in per project: by default no resource is org-scoped.
   // Apps that need it (marketplace, B2B SaaS, classifieds) wire owner relations
   // on their domain models.
-  ownedOrganizations Organization[]      @relation("OrgOwner")
+  ownedOrganizations Organization[]       @relation("OrgOwner")
   memberships        OrganizationMember[] @relation("OrgMembership")
 
   @@index([email])
   @@index([role])
   @@index([status])
+  @@index([marketplaceRole])
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -95,14 +109,14 @@ model AdminAction {
 // used as a stable URL segment.
 // ───────────────────────────────────────────────────────────────────────
 model Organization {
-  id        String   @id @default(cuid())
-  slug      String   @unique
+  id        String               @id @default(cuid())
+  slug      String               @unique
   name      String
   ownerId   String
-  owner     User     @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  owner     User                 @relation("OrgOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members   OrganizationMember[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 
   @@index([ownerId])
 }
@@ -271,23 +285,29 @@ model WebhookLog {
 // `amount` is stored in the smallest unit of `currency` (no decimals).
 // For XOF (FCFA, Senegal) that's 1 = 1 FCFA. For USD adapt to cents
 // at the call site — the schema is currency-agnostic.
+//
+// Corridor Sourcing note: this model is reserved for Pro-subscription
+// payments (see ProSubscription below) — the platform never charges for
+// sourcing transactions themselves (buyer pays agent/wholesaler directly,
+// outside the platform). The mission tracking pipeline uses the `Mission`
+// model, never `Order`.
 // ───────────────────────────────────────────────────────────────────────
 model Order {
-  id              String    @id @default(cuid())
-  userId          String? // nullable — guest checkout supported
-  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
-  amount          Int // gross amount, smallest unit
-  currency        String    @default("XOF") // ISO 4217
-  status          String    @default("PENDING") // PENDING | PAID | EXPIRED | FAILED | REFUNDED
-  customerEmail   String?
-  customerPhone   String?
-  customerName    String?
-  metadata        Json? // app-specific fields
+  id            String  @id @default(cuid())
+  userId        String? // nullable — guest checkout supported
+  user          User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  amount        Int // gross amount, smallest unit
+  currency      String  @default("XOF") // ISO 4217
+  status        String  @default("PENDING") // PENDING | PAID | EXPIRED | FAILED | REFUNDED
+  customerEmail String?
+  customerPhone String?
+  customerName  String?
+  metadata      Json? // app-specific fields
 
   // Stripe-grade idempotency. Required header on POST /api/orders; replay
   // with same value returns the original Order row instead of double-charging.
   // Nullable so existing rows pre-migration don't break the @unique constraint.
-  idempotencyKey  String?   @unique
+  idempotencyKey String? @unique
 
   // Provider reference
   provider         String // e.g. "bictorys"
@@ -311,12 +331,12 @@ model Order {
 }
 
 model Withdrawal {
-  id          String   @id @default(cuid())
+  id          String @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user        User   @relation(fields: [userId], references: [id], onDelete: Restrict)
   amount      Int // requested amount, smallest unit
-  currency    String   @default("XOF")
-  status      String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED
+  currency    String @default("XOF")
+  status      String @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | CANCELLED
   destination Json // { method: "WAVE" | "ORANGE_MONEY" | ..., phone: "+221...", accountName?: "..." }
 
   // Provider reference
@@ -331,4 +351,370 @@ model Withdrawal {
   @@index([userId, requestedAt])
   @@index([status, requestedAt])
   @@index([provider, providerPayoutId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Corridor Sourcing — marketplace domain models
+//
+// Three marketplace roles (User.marketplaceRole: BUYER | AGENT | WHOLESALER)
+// on top of the generic starter above. `FileUpload.id` pointers (idFrontUploadId,
+// logoUploadId, etc.) are plain string references, not Prisma relations —
+// keeps the relation graph shallow; the app validates ownership at the route
+// level. Same convention for "who performed this" admin-ish pointers
+// (verificationReviewerId, moderatedByUserId, createdByUserId, authorId,
+// senderId, participantAId/participantBId) — plain User.id strings, no FK.
+// ═══════════════════════════════════════════════════════════════════════
+
+// Lightweight compared to AgentProfile/WholesalerProfile on purpose — buyers
+// aren't a public-facing entity in the marketplace (no slug, no public page,
+// no verification). Just enough to pre-fill the sourcing-request form
+// (PRD 3.9 "Profil acheteur" / US1: "pays de livraison pré-rempli depuis
+// son profil"). Nullable fields: empty right after role choice, filled in
+// via /buyer/profil or on first sourcing request.
+model BuyerProfile {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName        String?
+  phone           String?
+  deliveryCountry String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AgentProfile {
+  id          String  @id @default(cuid())
+  userId      String  @unique
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  bio         String?
+  actionZone  String? // quartier/marché à Cotonou (Dantokpa, Missèbo…) — collected at verification (Phase 3), null right after role choice
+  phone       String?
+
+  verificationStatus          String    @default("UNVERIFIED") // UNVERIFIED | PENDING | VERIFIED | REJECTED | REVOKED
+  idFrontUploadId             String? // FileUpload.id — pièce d'identité recto
+  idBackUploadId              String? // FileUpload.id — pièce d'identité verso
+  selfieUploadId              String? // FileUpload.id
+  verificationSubmittedAt     DateTime?
+  verificationReviewedAt      DateTime?
+  verificationReviewerId      String? // admin User.id, no FK relation
+  verificationRejectionReason String?
+
+  // Denormalized, recomputed on Review insert / Mission completion in the
+  // same transaction as the write (no DB triggers, matches Withdrawal-balance
+  // convention already used elsewhere in this schema).
+  missionCount Int    @default(0)
+  avgRating    Float?
+  reviewCount  Int    @default(0)
+
+  publicSlug  String  @unique
+  isSuspended Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  candidatures Candidature[]
+  missions     Mission[]
+  reviews      Review[]
+
+  @@index([verificationStatus])
+  @@index([publicSlug])
+}
+
+model WholesalerProfile {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopName       String
+  slug           String  @unique
+  logoUploadId   String? // FileUpload.id
+  coverUploadId  String? // FileUpload.id
+  description    String?
+  locationCity   String  @default("Cotonou")
+  locationDetail String? // marché (Dantokpa, Missèbo…)
+  hours          String?
+  whatsappLink   String?
+  status         String  @default("ACTIVE") // ACTIVE | SUSPENDED
+  viewCount      Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products          Product[]
+  liveAnnouncements LiveAnnouncement[]
+  missions          Mission[]
+
+  @@index([status])
+  @@index([slug])
+}
+
+model Product {
+  id                  String            @id @default(cuid())
+  wholesalerProfileId String
+  wholesalerProfile   WholesalerProfile @relation(fields: [wholesalerProfileId], references: [id], onDelete: Cascade)
+  name                String
+  category            String // catégorie fixe (bijoux, cosmétiques, textiles, électronique, fournitures…)
+  description         String
+  priceAmount         Int // smallest unit, XOF
+  currency            String            @default("XOF")
+  minQuantity         Int               @default(1)
+  // Owner-controlled stock signal on an already-published product (shows a
+  // "rupture de stock" badge, hidden from buyer discovery, still visible on
+  // the shop page) — orthogonal to `status` below, which is the moderation
+  // lifecycle, not a stock flag.
+  availability        String            @default("AVAILABLE") // AVAILABLE | UNAVAILABLE
+  status              String            @default("DRAFT") // DRAFT | PENDING | PUBLISHED — moderation lifecycle: DRAFT (editable, not submitted) -> PENDING (awaiting admin review) -> PUBLISHED (approved); admin rejection sends PENDING back to DRAFT with rejectionReason set.
+  viewCount           Int               @default(0)
+
+  moderatedByUserId String? // admin User.id, no FK relation
+  moderatedAt       DateTime?
+  rejectionReason   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media            ProductMedia[]
+  sourcingRequests SourcingRequest[]
+
+  @@index([wholesalerProfileId, status])
+  @@index([category, status])
+}
+
+model ProductMedia {
+  id           String   @id @default(cuid())
+  productId    String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fileUploadId String // FileUpload.id
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([productId])
+}
+
+model SourcingRequest {
+  id                    String   @id @default(cuid())
+  buyerId               String
+  buyer                 User     @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  title                 String
+  description           String
+  productId             String? // set when created from Catalogue "Demander le sourcing"; null for free-form
+  product               Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  tiktokLink            String?
+  facebookLink          String?
+  budgetAmount          Int?
+  currency              String   @default("XOF")
+  quantity              Int?
+  deliveryCountry       String // pré-rempli depuis le profil acheteur
+  status                String   @default("OPEN") // OPEN | IN_PROGRESS | COMPLETED | CANCELLED
+  selectedCandidatureId String?  @unique // Candidature.id, no FK relation (avoids circular relation)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  media        RequestMedia[]
+  candidatures Candidature[]
+  mission      Mission?
+
+  @@index([status, createdAt])
+  @@index([buyerId, status])
+}
+
+model RequestMedia {
+  id                String          @id @default(cuid())
+  sourcingRequestId String
+  sourcingRequest   SourcingRequest @relation(fields: [sourcingRequestId], references: [id], onDelete: Cascade)
+  fileUploadId      String // FileUpload.id
+  position          Int             @default(0)
+  createdAt         DateTime        @default(now())
+
+  @@index([sourcingRequestId])
+}
+
+model Candidature {
+  id                       String          @id @default(cuid())
+  sourcingRequestId        String
+  sourcingRequest          SourcingRequest @relation(fields: [sourcingRequestId], references: [id], onDelete: Cascade)
+  agentProfileId           String
+  agentProfile             AgentProfile    @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  proposedCommissionAmount Int?
+  currency                 String          @default("XOF")
+  message                  String
+  status                   String          @default("PENDING") // PENDING | ACCEPTED | REJECTED | WITHDRAWN
+  // Agent-chosen fulfillment mode, copied onto Mission when this candidature
+  // is accepted — see the comment above `model Mission` for what each value
+  // means. Chosen at candidature time because the agent is the one who knows
+  // whether this will be a same-day hand-off or a shipped delivery.
+  fulfillmentType          String          @default("STANDARD") // STANDARD | INSTANTANE
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourcingRequestId, agentProfileId])
+  @@index([agentProfileId, status])
+}
+
+// The reçu→achat→acheté→emballé→expédié→livré pipeline. Deliberately NOT
+// the `Order` model — see the note above `model Order`. Status transitions
+// are forward-only (enforced at the route level, not the DB).
+//
+// `fulfillmentType` picks which of the two agent-settable sequences applies
+// (see lib/mission-status.ts, the single source of truth for both):
+//   STANDARD   — RECU -> EN_ACHAT -> ACHETE -> EMBALLE -> EXPEDIE (buyer
+//                confirms at EXPEDIE). For sourcing shipped over distance.
+//   INSTANTANE — RECU -> EN_ACHAT -> ACHETE (buyer confirms at ACHETE,
+//                EMBALLE/EXPEDIE skipped). For a same-day, hand-to-hand
+//                local errand — no packaging or shipping step applies.
+// Copied from Candidature.fulfillmentType when the Mission is created;
+// immutable afterwards (changing mid-mission would orphan the in-flight
+// status against a sequence it was never validated on).
+model Mission {
+  id                     String             @id @default(cuid())
+  sourcingRequestId      String             @unique
+  sourcingRequest        SourcingRequest    @relation(fields: [sourcingRequestId], references: [id], onDelete: Restrict)
+  buyerId                String
+  buyer                  User               @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  agentProfileId         String
+  agentProfile           AgentProfile       @relation(fields: [agentProfileId], references: [id], onDelete: Restrict)
+  wholesalerProfileId    String? // known once the agent identifies/confirms the wholesaler
+  wholesalerProfile      WholesalerProfile? @relation(fields: [wholesalerProfileId], references: [id], onDelete: SetNull)
+  agreedCommissionAmount Int
+  currency               String             @default("XOF")
+  status                 String             @default("RECU") // RECU | EN_ACHAT | ACHETE | EMBALLE | EXPEDIE | LIVRE | AUTO_LIVRE | LITIGE
+  fulfillmentType        String             @default("STANDARD") // STANDARD | INSTANTANE — see comment above
+
+  deliveryConfirmedAt DateTime?
+  autoClosedAt        DateTime? // set by the 14-day auto-confirm cron
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statusEvents MissionStatusEvent[]
+  review       Review?
+
+  @@index([buyerId, status])
+  @@index([agentProfileId, status])
+  @@index([wholesalerProfileId, status])
+}
+
+model MissionStatusEvent {
+  id              String   @id @default(cuid())
+  missionId       String
+  mission         Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  status          String // the status transitioned TO — irreversible per route logic (forward-only)
+  note            String?
+  createdByUserId String // normally the agent; the buyer for delivery confirmation — no FK relation
+  createdAt       DateTime @default(now())
+
+  media MissionStatusEventMedia[]
+
+  @@index([missionId, createdAt])
+}
+
+model MissionStatusEventMedia {
+  id                   String             @id @default(cuid())
+  missionStatusEventId String
+  missionStatusEvent   MissionStatusEvent @relation(fields: [missionStatusEventId], references: [id], onDelete: Cascade)
+  fileUploadId         String // FileUpload.id
+  createdAt            DateTime           @default(now())
+
+  @@index([missionStatusEventId])
+}
+
+// Auto-created when a Candidature is accepted. `kind` distinguishes the
+// three peer-to-peer pairings plus support; participants are plain User.id
+// strings (no FK relation) so a conversation can pair any two roles without
+// needing a named relation per pairing.
+model Conversation {
+  id             String    @id @default(cuid())
+  kind           String // BUYER_AGENT | BUYER_WHOLESALER | AGENT_WHOLESALER | SUPPORT
+  subjectType    String? // MISSION | SOURCING_REQUEST | PRODUCT | GENERAL
+  subjectId      String?
+  participantAId String
+  participantBId String
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+
+  messages Message[]
+
+  @@unique([participantAId, participantBId, subjectType, subjectId])
+  @@index([participantAId, lastMessageAt])
+  @@index([participantBId, lastMessageAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String // no FK relation — validated against Conversation participants at the route level
+  body           String?
+  readAt         DateTime? // read by the (single) recipient — 2-party threads only
+  createdAt      DateTime     @default(now())
+
+  media MessageMedia[]
+
+  @@index([conversationId, createdAt])
+}
+
+model MessageMedia {
+  id           String   @id @default(cuid())
+  messageId    String
+  message      Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  fileUploadId String // FileUpload.id
+  createdAt    DateTime @default(now())
+
+  @@index([messageId])
+}
+
+// Lives happen OFF-platform (TikTok/Facebook/Zoom) — this is a scheduled
+// signal, not a hosted stream. `status` is derivable at query time from
+// `now()` vs. [scheduledStart, scheduledEnd] rather than stored/cron-updated;
+// a persisted `status` column still exists for CANCELLED (a state `now()`
+// can't derive) and for simple filtering.
+model LiveAnnouncement {
+  id                  String            @id @default(cuid())
+  wholesalerProfileId String
+  wholesalerProfile   WholesalerProfile @relation(fields: [wholesalerProfileId], references: [id], onDelete: Cascade)
+  title               String?
+  externalLink        String
+  scheduledStart      DateTime
+  scheduledEnd        DateTime
+  status              String            @default("SCHEDULED") // SCHEDULED | ENDED | CANCELLED (LIVE is derived, not stored)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([wholesalerProfileId, scheduledStart])
+  @@index([status, scheduledStart])
+}
+
+model Review {
+  id             String       @id @default(cuid())
+  missionId      String       @unique
+  mission        Mission      @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  authorId       String // buyer User.id, no FK relation
+  agentProfileId String
+  agentProfile   AgentProfile @relation(fields: [agentProfileId], references: [id], onDelete: Cascade)
+  rating         Int // 1-5
+  comment        String?
+  createdAt      DateTime     @default(now())
+
+  @@index([agentProfileId, createdAt])
+}
+
+model ProSubscription {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileType      String // AGENT | WHOLESALER
+  plan             String // AGENT_PRO | WHOLESALER_PRO
+  status           String    @default("INACTIVE") // INACTIVE | ACTIVE | GRACE | EXPIRED | CANCELLED
+  currentPeriodEnd DateTime?
+  graceEndsAt      DateTime?
+  lastOrderId      String? // Order.id, no FK relation
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, currentPeriodEnd])
 }

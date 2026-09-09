@@ -41,10 +41,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       select: {
         id: true,
         email: true,
+        name: true,
         emailVerifiedAt: true,
         createdAt: true,
         updatedAt: true,
         passwordHash: true,
+        marketplaceRole: true,
         oauthAccounts: { select: { provider: true } },
       },
     });
@@ -55,6 +57,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       sub: auth.user.sub,
       id: dbUser?.id ?? auth.user.sub,
       email: dbUser?.email ?? auth.user.email,
+      name: dbUser?.name ?? null,
       emailVerifiedAt: dbUser?.emailVerifiedAt
         ? dbUser.emailVerifiedAt instanceof Date
           ? dbUser.emailVerifiedAt.toISOString()
@@ -72,6 +75,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         : null,
       hasPassword: !!dbUser?.passwordHash,
       linkedProviders: (dbUser?.oauthAccounts ?? []).map((a) => a.provider),
+      marketplaceRole: dbUser?.marketplaceRole ?? null,
     };
 
     return NextResponse.json({ user }, { status: 200, headers: { 'x-request-id': ctx.requestId } });

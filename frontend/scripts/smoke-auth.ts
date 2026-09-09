@@ -17,10 +17,12 @@
 // csrfFromCookies().
 
 import { PrismaClient } from '@prisma/client';
+import { fileURLToPath } from 'node:url';
 
 const BASE_URL = process.env.SMOKE_BASE_URL ?? 'http://localhost:3000';
 const TEST_EMAIL = `smoke-${Date.now()}@example.test`;
 const TEST_PASSWORD = 'SmokeTestPwd123!';
+const TEST_NAME = 'Smoke Test';
 
 interface ApiError extends Error {
   step?: string;
@@ -95,7 +97,7 @@ export async function main(): Promise<number> {
     const signupRes = await fetch(`${BASE_URL}/api/auth/signup`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD }),
+      body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD, name: TEST_NAME }),
     });
     await assertStatus('signup', signupRes, 201);
 
@@ -150,7 +152,7 @@ export async function main(): Promise<number> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main()
     .then((code) => process.exit(code))
     .catch((err) => {

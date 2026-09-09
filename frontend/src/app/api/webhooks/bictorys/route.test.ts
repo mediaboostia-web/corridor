@@ -7,12 +7,14 @@ const update = vi.fn();
 const orderFindFirst = vi.fn();
 const orderUpdate = vi.fn();
 const outboxCreate = vi.fn();
+const proSubUpsert = vi.fn();
 
 const $transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>, _opts?: unknown) =>
   fn({
     webhookLog: { findUnique, create, update },
     order: { findFirst: orderFindFirst, update: orderUpdate },
     outboxEvent: { create: outboxCreate },
+    proSubscription: { upsert: proSubUpsert },
   }),
 );
 
@@ -31,6 +33,7 @@ beforeEach(() => {
   orderFindFirst.mockReset();
   orderUpdate.mockReset();
   outboxCreate.mockReset();
+  proSubUpsert.mockReset();
 });
 
 afterEach(() => {
@@ -109,6 +112,58 @@ describe('POST /api/webhooks/bictorys', () => {
         (k) => k === 'notification.payment_received' || k === 'email.payment_confirmation',
       ),
     ).toBe(true);
+  });
+
+  it('onPaid activates the ProSubscription when Order.metadata carries a subscription plan (Phase 7)', async () => {
+    findUnique.mockResolvedValueOnce(null);
+    orderFindFirst.mockResolvedValueOnce({
+      id: 'o1',
+      userId: 'u1',
+      customerEmail: 'a@b.com',
+      amount: 5000,
+      currency: 'XOF',
+      metadata: { subscriptionPlan: 'AGENT_PRO', profileType: 'AGENT' },
+    });
+    outboxCreate.mockResolvedValue({ id: 'ob1' });
+    proSubUpsert.mockResolvedValue({ id: 'sub1' });
+    const { POST } = await import('./route');
+    const { req } = bictorysFixtureRequest({ status: 'succeeded' });
+    await POST(req);
+    expect(proSubUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'u1' },
+        create: expect.objectContaining({
+          userId: 'u1',
+          plan: 'AGENT_PRO',
+          profileType: 'AGENT',
+          status: 'ACTIVE',
+          lastOrderId: 'o1',
+        }),
+        update: expect.objectContaining({
+          plan: 'AGENT_PRO',
+          profileType: 'AGENT',
+          status: 'ACTIVE',
+          lastOrderId: 'o1',
+        }),
+      }),
+    );
+  });
+
+  it('onPaid does not touch ProSubscription when Order.metadata has no subscription plan', async () => {
+    findUnique.mockResolvedValueOnce(null);
+    orderFindFirst.mockResolvedValueOnce({
+      id: 'o1',
+      userId: 'u1',
+      customerEmail: 'a@b.com',
+      amount: 5000,
+      currency: 'XOF',
+      metadata: null,
+    });
+    outboxCreate.mockResolvedValue({ id: 'ob1' });
+    const { POST } = await import('./route');
+    const { req } = bictorysFixtureRequest({ status: 'succeeded' });
+    await POST(req);
+    expect(proSubUpsert).not.toHaveBeenCalled();
   });
 
   it('exports runtime=nodejs and dynamic=force-dynamic (WH-01)', async () => {

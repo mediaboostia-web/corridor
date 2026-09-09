@@ -30,6 +30,13 @@ import { createWebhookHandler } from '@/lib/server/webhook/handler';
 import { bictorysWebhookProvider } from '@/lib/server/webhook/bictorys';
 import { enqueueOutbox } from '@/lib/server/outbox';
 import { prisma } from '@/lib/server/prisma';
+import {
+  SUBSCRIPTION_PERIOD_DAYS,
+  type SubscriptionPlan,
+  type SubscriptionProfileType,
+} from '@/lib/marketplace';
+
+const SUBSCRIPTION_PERIOD_MS = SUBSCRIPTION_PERIOD_DAYS * 24 * 60 * 60 * 1000;
 
 export const POST = createWebhookHandler({
   prisma,
@@ -46,14 +53,52 @@ export const POST = createWebhookHandler({
 
     const paymentMethod = payload.payment_method ? String(payload.payment_method) : null;
 
+    const paidAt = new Date();
     await tx.order.update({
       where: { id: order.id },
       data: {
         status: 'PAID',
-        paidAt: new Date(),
+        paidAt,
         ...(paymentMethod !== null ? { paymentMethod } : {}),
       },
     });
+
+    // Phase 7 — Order is reserved for Pro-subscription payments (see the
+    // comment above `model Order` in schema.prisma), so a PAID order here
+    // always activates/renews the ProSubscription that
+    // POST /api/subscriptions/checkout stamped into metadata at creation
+    // time. Runs inside the same Serializable tx as the Order status write
+    // so both commit atomically — a webhook retry (dedup'd upstream by
+    // WebhookLog) can never activate twice or leave the two rows split.
+    const metadata = (order.metadata ?? null) as {
+      subscriptionPlan?: string;
+      profileType?: string;
+    } | null;
+    if (order.userId && metadata?.subscriptionPlan && metadata.profileType) {
+      const plan = metadata.subscriptionPlan as SubscriptionPlan;
+      const profileType = metadata.profileType as SubscriptionProfileType;
+      const currentPeriodEnd = new Date(paidAt.getTime() + SUBSCRIPTION_PERIOD_MS);
+      await tx.proSubscription.upsert({
+        where: { userId: order.userId },
+        create: {
+          userId: order.userId,
+          profileType,
+          plan,
+          status: 'ACTIVE',
+          currentPeriodEnd,
+          graceEndsAt: null,
+          lastOrderId: order.id,
+        },
+        update: {
+          profileType,
+          plan,
+          status: 'ACTIVE',
+          currentPeriodEnd,
+          graceEndsAt: null,
+          lastOrderId: order.id,
+        },
+      });
+    }
 
     // Outbox emits stay inside the factory's Serializable tx so the rows
     // commit atomically with the status change. The drain cron picks them up

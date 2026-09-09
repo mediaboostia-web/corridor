@@ -59,6 +59,41 @@ describe('/api/admin/users/[id] — detail', () => {
     expect(body.user).not.toHaveProperty('passwordHash');
   });
 
+  it('GET includes the AgentProfile summary (Phase 8) for an AGENT user', async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce({
+      id: 'u2',
+      email: 'karim@test.local',
+      name: null,
+      avatarUrl: null,
+      role: 'USER',
+      status: 'ACTIVE',
+      marketplaceRole: 'AGENT',
+      emailVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+      createdAt: new Date('2026-05-01T00:00:00Z'),
+      buyerProfile: null,
+      agentProfile: {
+        id: 'agent-1',
+        displayName: 'Karim',
+        verificationStatus: 'VERIFIED',
+        isSuspended: false,
+        avgRating: 2.5,
+        reviewCount: 4,
+        missionCount: 4,
+        publicSlug: 'karim',
+      },
+      wholesalerProfile: null,
+      proSubscription: null,
+    } as never);
+
+    const res = await GET(makeGet('http://test/api/admin/users/u2'), ctxWith('u2'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      user: { marketplaceRole: string; agentProfile: { isSuspended: boolean } };
+    };
+    expect(body.user.marketplaceRole).toBe('AGENT');
+    expect(body.user.agentProfile.isSuspended).toBe(false);
+  });
+
   it('GET returns 404 USER_NOT_FOUND for a missing user', async () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(null as never);
     const res = await GET(makeGet('http://test/api/admin/users/missing'), ctxWith('missing'));

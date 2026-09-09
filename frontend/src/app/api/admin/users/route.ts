@@ -32,6 +32,7 @@ const USER_SELECT = {
   avatarUrl: true,
   role: true,
   status: true,
+  marketplaceRole: true,
   emailVerifiedAt: true,
   createdAt: true,
 } as const satisfies Prisma.UserSelect;
@@ -52,6 +53,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const q = (url.searchParams.get('q') ?? '').slice(0, Q_MAX).trim();
     const status = url.searchParams.get('status');
     const role = url.searchParams.get('role');
+    // Phase 8 — Corridor Sourcing's marketplace role (BUYER|AGENT|WHOLESALER),
+    // orthogonal to `role` above (the admin tier). PRD 3.23 "rechercher un
+    // utilisateur par... rôle" refers to this dimension, not the admin tier.
+    const marketplaceRole = url.searchParams.get('marketplaceRole');
     const cursor = decodeCursor(url.searchParams.get('cursor'));
 
     const where: Prisma.UserWhereInput = {
@@ -65,6 +70,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         : {}),
       ...(status ? { status } : {}),
       ...(role ? { role } : {}),
+      ...(marketplaceRole ? { marketplaceRole } : {}),
       ...cursorWhere(cursor),
     };
 

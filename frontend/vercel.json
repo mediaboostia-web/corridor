@@ -5,6 +5,9 @@
     { "path": "/api/cron/verification-cleanup", "schedule": "0 * * * *" },
     { "path": "/api/cron/order-expiration", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/webhook-log-purge", "schedule": "0 0 * * *" },
-    { "path": "/api/cron/email-job-purge", "schedule": "0 0 * * *" }
+    { "path": "/api/cron/email-job-purge", "schedule": "0 0 * * *" },
+    { "path": "/api/cron/mission-auto-deliver", "schedule": "0 * * * *" },
+    { "path": "/api/cron/subscription-renewal-reminder", "schedule": "0 * * * *" },
+    { "path": "/api/cron/subscription-grace-sweep", "schedule": "0 * * * *" }
   ]
 }

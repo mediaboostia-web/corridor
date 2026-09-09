@@ -129,3 +129,24 @@ export function __resetCloudinarySingleton(): void {
   _configured = false;
   _preset = null;
 }
+
+/**
+ * Rebuild a public Cloudinary delivery URL from a stored `FileUpload.key`
+ * (Cloudinary public_id). `FileUpload` only persists the key, not the
+ * secure_url returned at upload time — every read path (product/shop/live
+ * listings) reconstructs the URL deterministically instead of re-storing a
+ * derived value. `CLOUDINARY_CLOUD_NAME` is not a secret (it's embedded in
+ * every Cloudinary URL already).
+ *
+ * `f_auto,q_auto` (format + quality auto-negotiation) is always applied —
+ * design_systeme.md's target user is on unstable 3G on an entry-level
+ * phone, so this is a blanket win with no call-site changes required.
+ * `opts.width` additionally caps delivered pixel width for call sites that
+ * know they're rendering a small thumbnail (e.g. a feed card) rather than a
+ * full-size detail view.
+ */
+export function cloudinaryImageUrl(key: string, opts?: { width?: number }): string {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME ?? '';
+  const transforms = ['f_auto', 'q_auto', ...(opts?.width ? [`w_${opts.width}`] : [])].join(',');
+  return `https://res.cloudinary.com/${cloudName}/image/upload/${transforms}/${key}`;
+}

@@ -1,19 +1,24 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Manrope, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { cn } from '@/lib/utils';
 
-const inter = Inter({
+const manrope = Manrope({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
+// Distinct display face for headlines only (h1/h2, wired via --font-heading
+// in globals.css) — Manrope stays the body/UI font. Two families in the
+// same geometric-sans family so they read as one system, not a clash.
+const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
-  variable: '--font-inter',
+  variable: '--font-heading',
   display: 'swap',
 });
 
-// Replace these with your app name + description per fork.
 export const metadata: Metadata = {
-  title: 'izi kit',
-  description: 'Headless Next.js 16 starter — auth, payments, admin, webhooks, cron.',
+  title: 'Corridor Sourcing',
+  description:
+    'Achetez au prix de gros à Cotonou grâce à des agents vérifiés sur le terrain, sans vous déplacer.',
 };
 
 export default function RootLayout({
@@ -22,8 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={inter.className}>
+    <html lang="fr" className={cn('font-sans', manrope.variable, spaceGrotesk.variable)}>
+      <body>
         <ToastProvider>
           <AuthProvider>{children}</AuthProvider>
         </ToastProvider>

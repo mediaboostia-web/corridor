@@ -69,6 +69,66 @@ it('lists OPEN requests and annotates the caller own candidature status', async 
   });
 });
 
+it('flattens the linked product wholesaler info so the agent can reach the shop page', async () => {
+  prismaMock.agentProfile.findUnique.mockResolvedValue({ id: 'agent-1' } as never);
+  prismaMock.sourcingRequest.findMany.mockResolvedValue([
+    {
+      id: 'req-1',
+      title: 'Robes wax',
+      description: 'desc',
+      budgetAmount: 50000,
+      currency: 'XOF',
+      quantity: 3,
+      deliveryCountry: 'Gabon',
+      createdAt: new Date('2026-01-01'),
+      product: {
+        id: 'prod-1',
+        name: 'Robe wax bleue',
+        wholesalerProfile: { shopName: 'Boutique Dantokpa', slug: 'boutique-dantokpa' },
+      },
+      media: [],
+    },
+  ] as never);
+  prismaMock.candidature.findMany.mockResolvedValue([]);
+
+  const res = await GET(req());
+  const body = await res.json();
+  expect(body.items[0].product).toEqual({
+    id: 'prod-1',
+    name: 'Robe wax bleue',
+    wholesalerShopName: 'Boutique Dantokpa',
+    wholesalerSlug: 'boutique-dantokpa',
+  });
+});
+
+it('filters by ?q= across title and description when provided', async () => {
+  prismaMock.agentProfile.findUnique.mockResolvedValue({ id: 'agent-1' } as never);
+  prismaMock.sourcingRequest.findMany.mockResolvedValue([]);
+  prismaMock.candidature.findMany.mockResolvedValue([]);
+
+  await GET(req('?q=robe'));
+  expect(prismaMock.sourcingRequest.findMany).toHaveBeenCalledWith(
+    expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { title: { contains: 'robe', mode: 'insensitive' } },
+          { description: { contains: 'robe', mode: 'insensitive' } },
+        ],
+      }),
+    }),
+  );
+});
+
+it('omits the OR filter when ?q= is absent', async () => {
+  prismaMock.agentProfile.findUnique.mockResolvedValue({ id: 'agent-1' } as never);
+  prismaMock.sourcingRequest.findMany.mockResolvedValue([]);
+  prismaMock.candidature.findMany.mockResolvedValue([]);
+
+  await GET(req());
+  const call = prismaMock.sourcingRequest.findMany.mock.calls[0]?.[0];
+  expect(call?.where).not.toHaveProperty('OR');
+});
+
 it('marks items with no candidature as null', async () => {
   prismaMock.agentProfile.findUnique.mockResolvedValue({ id: 'agent-1' } as never);
   prismaMock.sourcingRequest.findMany.mockResolvedValue([

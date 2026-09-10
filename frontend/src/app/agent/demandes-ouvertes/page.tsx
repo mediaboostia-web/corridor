@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { api, ApiError } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ interface OpenRequest {
   deliveryCountry: string;
   createdAt: string;
   thumbnailUrl: string | null;
+  product: { id: string; name: string; wholesalerShopName: string | null } | null;
   myCandidatureId: string | null;
   myCandidatureStatus: CandidatureStatus;
 }
@@ -30,7 +32,9 @@ const STATUS_LABEL: Record<Exclude<CandidatureStatus, null>, string> = {
   WITHDRAWN: 'Candidature retirée',
 };
 
-export default function AgentDemandesOuvertesPage() {
+function AgentDemandesOuvertesView() {
+  const searchParams = useSearchParams();
+  const q = searchParams.get('q') ?? '';
   const [items, setItems] = useState<OpenRequest[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,15 +42,16 @@ export default function AgentDemandesOuvertesPage() {
 
   const load = useCallback(async () => {
     try {
+      const qs = q ? `&q=${encodeURIComponent(q)}` : '';
       const res = await api<{ items: OpenRequest[]; nextCursor: string | null }>(
-        '/api/agent/demandes-ouvertes?limit=20',
+        `/api/agent/demandes-ouvertes?limit=20${qs}`,
       );
       setItems(res.items);
       setNextCursor(res.nextCursor);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Une erreur est survenue.');
     }
-  }, []);
+  }, [q]);
 
   useEffect(() => {
     void load();
@@ -56,8 +61,9 @@ export default function AgentDemandesOuvertesPage() {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
+      const qs = q ? `&q=${encodeURIComponent(q)}` : '';
       const res = await api<{ items: OpenRequest[]; nextCursor: string | null }>(
-        `/api/agent/demandes-ouvertes?limit=20&cursor=${encodeURIComponent(nextCursor)}`,
+        `/api/agent/demandes-ouvertes?limit=20&cursor=${encodeURIComponent(nextCursor)}${qs}`,
       );
       setItems((prev) => [...(prev ?? []), ...res.items]);
       setNextCursor(res.nextCursor);
@@ -70,7 +76,23 @@ export default function AgentDemandesOuvertesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Demandes ouvertes</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        {q ? (
+          <>
+            Résultats pour <span className="text-primary">&laquo;&nbsp;{q}&nbsp;&raquo;</span>
+          </>
+        ) : (
+          'Demandes ouvertes'
+        )}
+      </h1>
+      {q && (
+        <Link
+          href="/agent/demandes-ouvertes"
+          className="-mt-4 w-fit text-sm text-muted-foreground underline"
+        >
+          Effacer la recherche
+        </Link>
+      )}
 
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -109,6 +131,11 @@ export default function AgentDemandesOuvertesPage() {
                       {r.quantity ? `x${r.quantity} · ` : ''}
                       {r.deliveryCountry}
                     </p>
+                    {r.product?.wholesalerShopName && (
+                      <p className="text-xs text-muted-foreground">
+                        Produit catalogue · {r.product.wholesalerShopName}
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -128,5 +155,13 @@ export default function AgentDemandesOuvertesPage() {
         </Button>
       )}
     </div>
+  );
+}
+
+export default function AgentDemandesOuvertesPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted-foreground">Chargement…</p>}>
+      <AgentDemandesOuvertesView />
+    </Suspense>
   );
 }

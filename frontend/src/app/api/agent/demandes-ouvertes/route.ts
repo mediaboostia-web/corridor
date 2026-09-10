@@ -25,6 +25,13 @@ const REQUEST_SELECT = {
   quantity: true,
   deliveryCountry: true,
   createdAt: true,
+  product: {
+    select: {
+      id: true,
+      name: true,
+      wholesalerProfile: { select: { shopName: true, slug: true } },
+    },
+  },
   media: { select: { fileUploadId: true, position: true }, orderBy: { position: 'asc' }, take: 1 },
 } as const satisfies Prisma.SourcingRequestSelect;
 
@@ -44,9 +51,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const url = req.nextUrl;
     const limit = clampLimit(url.searchParams.get('limit'));
+    const q = url.searchParams.get('q')?.trim();
     const cursor = decodeCursor(url.searchParams.get('cursor'));
 
-    const where: Prisma.SourcingRequestWhereInput = { status: 'OPEN', ...cursorWhere(cursor) };
+    const where: Prisma.SourcingRequestWhereInput = {
+      status: 'OPEN',
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { description: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+      ...cursorWhere(cursor),
+    };
 
     const rows = await prisma.sourcingRequest.findMany({
       where,
@@ -82,6 +101,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         deliveryCountry: r.deliveryCountry,
         createdAt: r.createdAt,
         thumbnailUrl: r.media[0] ? (urls.get(r.media[0].fileUploadId) ?? null) : null,
+        product: r.product
+          ? {
+              id: r.product.id,
+              name: r.product.name,
+              wholesalerShopName: r.product.wholesalerProfile?.shopName ?? null,
+              wholesalerSlug: r.product.wholesalerProfile?.slug ?? null,
+            }
+          : null,
         myCandidatureId: mine?.id ?? null,
         myCandidatureStatus: mine?.status ?? null,
       };

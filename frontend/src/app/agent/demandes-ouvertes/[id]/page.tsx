@@ -20,7 +20,12 @@ interface RequestDetail {
   deliveryCountry: string;
   status: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   createdAt: string;
-  product: { id: string; name: string } | null;
+  product: {
+    id: string;
+    name: string;
+    wholesalerShopName: string | null;
+    wholesalerSlug: string | null;
+  } | null;
   media: { url: string | null }[];
   myCandidatureId: string | null;
   myCandidatureStatus: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'WITHDRAWN' | null;
@@ -98,12 +103,21 @@ export default function AgentDemandeOuverteDetailPage() {
             {request.quantity && <span>Quantité : {request.quantity}</span>}
           </div>
           {request.product && (
-            <p className="text-sm">
-              Produit lié :{' '}
-              <Link href={`/buyer/catalogue`} className="underline">
-                {request.product.name}
-              </Link>
-            </p>
+            <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+              <p>
+                Produit lié : <span className="font-medium">{request.product.name}</span>
+                {request.product.wholesalerShopName && <> — {request.product.wholesalerShopName}</>}
+              </p>
+              {request.product.wholesalerSlug && (
+                <Link
+                  href={`/boutiques/${request.product.wholesalerSlug}`}
+                  target="_blank"
+                  className="w-fit underline"
+                >
+                  Voir la boutique (localisation, horaires, contact WhatsApp, stock à jour)
+                </Link>
+              )}
+            </div>
           )}
           {(request.tiktokLink || request.facebookLink) && (
             <div className="flex flex-col gap-1 text-sm">

@@ -98,3 +98,36 @@ it('includes the caller own candidature status when present', async () => {
   const body = await res.json();
   expect(body.request).toMatchObject({ myCandidatureId: 'cand-1', myCandidatureStatus: 'PENDING' });
 });
+
+it('flattens the linked product wholesaler info so the agent can reach the shop page', async () => {
+  prismaMock.agentProfile.findUnique.mockResolvedValue({ id: 'agent-1' } as never);
+  prismaMock.sourcingRequest.findUnique.mockResolvedValue({
+    id: 'req-1',
+    title: 'Robes wax',
+    description: 'desc',
+    tiktokLink: null,
+    facebookLink: null,
+    budgetAmount: 50000,
+    currency: 'XOF',
+    quantity: 3,
+    deliveryCountry: 'Gabon',
+    status: 'OPEN',
+    createdAt: new Date('2026-01-01'),
+    product: {
+      id: 'prod-1',
+      name: 'Robe wax bleue',
+      wholesalerProfile: { shopName: 'Boutique Dantokpa', slug: 'boutique-dantokpa' },
+    },
+    media: [],
+  } as never);
+  prismaMock.candidature.findUnique.mockResolvedValue(null);
+
+  const res = await GET(req(), ctx());
+  const body = await res.json();
+  expect(body.request.product).toEqual({
+    id: 'prod-1',
+    name: 'Robe wax bleue',
+    wholesalerShopName: 'Boutique Dantokpa',
+    wholesalerSlug: 'boutique-dantokpa',
+  });
+});

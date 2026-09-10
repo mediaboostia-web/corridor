@@ -43,7 +43,13 @@ export async function GET(
         deliveryCountry: true,
         status: true,
         createdAt: true,
-        product: { select: { id: true, name: true } },
+        product: {
+          select: {
+            id: true,
+            name: true,
+            wholesalerProfile: { select: { shopName: true, slug: true } },
+          },
+        },
         media: {
           select: { fileUploadId: true, position: true },
           orderBy: { position: 'asc' },
@@ -80,7 +86,14 @@ export async function GET(
           deliveryCountry: request.deliveryCountry,
           status: request.status,
           createdAt: request.createdAt,
-          product: request.product,
+          product: request.product
+            ? {
+                id: request.product.id,
+                name: request.product.name,
+                wholesalerShopName: request.product.wholesalerProfile?.shopName ?? null,
+                wholesalerSlug: request.product.wholesalerProfile?.slug ?? null,
+              }
+            : null,
           media: request.media.map((m) => ({ url: urls.get(m.fileUploadId) ?? null })),
           myCandidatureId: myCandidature?.id ?? null,
           myCandidatureStatus: myCandidature?.status ?? null,
